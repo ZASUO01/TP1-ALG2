@@ -1,0 +1,7 @@
+pandas
+geopy
+osmnx
+scikit-learn
+dash
+dash-leaflet
+pytest
