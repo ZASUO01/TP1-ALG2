@@ -1,5 +1,11 @@
+from dash import Dash
+from src.ui import buildLayout
+
+
 def main():
-    print("not implemented yet")
+    app = Dash(__name__, title="Busca por entregadores")
+    app.layout = buildLayout()
+    app.run(debug=False)
 
 
 if __name__ == "__main__":
