@@ -3,7 +3,7 @@ import networkx as nx
 import pandas as pd
 import pytest
 
-from src.couriers import SIGMA_M, centerCount, generateCouriers
+from src.process.couriers import SIGMA_M, centerCount, generateCouriers
 
 CRS = "EPSG:31983"  # SIRGAS 2000 / UTM 23S, covers Belo Horizonte
 STREET_Y = 7796000.0

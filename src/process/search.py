@@ -1,7 +1,7 @@
 import math
 
-from src.geohash import encode, neighbors
-from src.trie import CompactTrie
+from src.core.geohash import encode, neighbors
+from src.core.trie import CompactTrie
 
 EARTH_RADIUS_KM = 6371.0
 KM_PER_DEGREE = EARTH_RADIUS_KM * math.pi / 180

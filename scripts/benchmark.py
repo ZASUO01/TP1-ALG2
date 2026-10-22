@@ -3,9 +3,10 @@ import time
 
 import pandas as pd
 
-from src.couriers import generateCouriers, loadStreetGraph
-from src.geohash import encode, neighbors
-from src.search import buildIndex, haversine, precisionForRadius, searchRadius
+from src.process.couriers import generateCouriers
+from src.process.streets import loadStreetGraph
+from src.core.geohash import encode, neighbors
+from src.process.search import buildIndex, haversine, precisionForRadius, searchRadius
 
 BARS_PATH = "data/bares_geo.csv"
 SIZES = [1000, 10000, 100000]

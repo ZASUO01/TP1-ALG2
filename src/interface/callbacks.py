@@ -1,7 +1,7 @@
 from dash import Input, Output, ctx
 from dash.exceptions import PreventUpdate
 
-from src.ui import METRICS, couriersLayer, metricValues, searchLayer
+from src.interface.ui import METRICS, couriersLayer, metricValues, searchLayer
 
 
 def registerCallbacks(app, state):

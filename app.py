@@ -1,8 +1,8 @@
 from dash import Dash
 
-from src.callbacks import registerCallbacks
+from src.interface.callbacks import registerCallbacks
 from src.state import AppState
-from src.ui import buildLayout
+from src.interface.ui import buildLayout
 
 state = AppState()
 

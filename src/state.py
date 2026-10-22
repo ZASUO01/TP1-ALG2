@@ -1,10 +1,10 @@
 import time
-
 import pandas as pd
 
-from src.couriers import generateCouriers, loadStreetGraph
-from src.search import buildIndex, searchRadius
-from src.trie import CompactTrie
+from src.process.couriers import generateCouriers
+from src.process.streets import loadStreetGraph
+from src.process.search import buildIndex, searchRadius
+from src.core.trie import CompactTrie
 
 BARS_PATH = "data/bares_geo.csv"
 COURIER_SPEED_KMH = 20

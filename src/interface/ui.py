@@ -112,7 +112,6 @@ def mapSection():
 
 
 def couriersLayer(couriers, highlighted=frozenset()):
-    # highlighted couriers go last so they are drawn on top
     ordered = sorted(couriers, key=lambda courier: courier[2] in highlighted)
     return {
         "type": "FeatureCollection",

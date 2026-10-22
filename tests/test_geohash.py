@@ -1,6 +1,6 @@
 import pytest
 
-from src.geohash import decode, center, encode, neighbors
+from src.core.geohash import decode, center, encode, neighbors
 
 BH_POINTS = [
     (57.64911, 10.40744),  

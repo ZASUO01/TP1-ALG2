@@ -3,7 +3,7 @@ import random
 
 import pytest
 
-from src.search import (
+from src.process.search import (
     KM_PER_DEGREE,
     buildIndex,
     haversine,

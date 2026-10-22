@@ -1,7 +1,7 @@
 import random
 
-from src.geohash import encode
-from src.trie import CompactTrie
+from src.core.geohash import encode
+from src.core.trie import CompactTrie
 
 
 def test_empty_trie():
