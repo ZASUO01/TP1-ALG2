@@ -3,7 +3,7 @@ import networkx as nx
 import pandas as pd
 import pytest
 
-from src.couriers import MAX_DISTANCE_M, generateCouriers
+from src.couriers import SIGMA_M, centerCount, generateCouriers
 
 CRS = "EPSG:31983"  # SIRGAS 2000 / UTM 23S, covers Belo Horizonte
 STREET_Y = 7796000.0
@@ -43,7 +43,7 @@ def test_couriers_are_on_the_street_near_the_bar():
     couriers = generateCouriers(200, oneBar(), oneStreetGraph(), seed=1)
     points = toProjected(couriers)
     assert points.y.to_numpy() == pytest.approx(STREET_Y, abs=0.01)
-    assert (abs(points.x.to_numpy() - BAR_X) <= MAX_DISTANCE_M + 0.01).all()
+    assert (abs(points.x.to_numpy() - BAR_X) <= 5 * SIGMA_M).all()
 
 
 def test_same_seed_same_couriers():
@@ -52,3 +52,23 @@ def test_same_seed_same_couriers():
     c = generateCouriers(20, oneBar(), oneStreetGraph(), seed=8)
     assert a == b
     assert a != c
+
+
+@pytest.mark.parametrize("n, expected", [(0, 1), (5, 1), (10, 1), (250, 25), (1000, 100), (20000, 100)])
+def test_center_count(n, expected):
+    assert centerCount(n) == expected
+
+
+def test_couriers_are_split_equally_between_centers():
+    # 3 bars 4 km apart on one long street; 30 couriers -> 3 centers, 10 each
+    xs = [BAR_X - 4000, BAR_X, BAR_X + 4000]
+    graph = nx.MultiDiGraph(crs=CRS)
+    graph.add_node(1, x=BAR_X - 8000, y=STREET_Y)
+    graph.add_node(2, x=BAR_X + 8000, y=STREET_Y)
+    graph.add_edge(1, 2, key=0)
+    points = gpd.GeoSeries(gpd.points_from_xy(xs, [STREET_Y] * 3), crs=CRS).to_crs("EPSG:4326")
+    bars = pd.DataFrame({"latitude": points.y, "longitude": points.x})
+
+    couriers = toProjected(generateCouriers(30, bars, graph, seed=3))
+    nearest = [min(range(3), key=lambda i: abs(x - xs[i])) for x in couriers.x]
+    assert sorted(nearest.count(i) for i in range(3)) == [10, 10, 10]

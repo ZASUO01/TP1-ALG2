@@ -5,6 +5,7 @@ BH_CENTER = [-19.92, -43.94]
 BH_BOUNDS = [[-20.06, -44.09], [-19.75, -43.84]]
 MAX_COURIERS = 20000
 MAX_RADIUS_KM = 20
+COURIER_COLOR = "#78909c"
 TILES_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"
 TILES_ATTRIBUTION = "Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors"
 
@@ -19,6 +20,7 @@ METRICS = [
 
 def buildLayout():
     return html.Div(className="page", children=[
+        dcc.Location(id="url"),
         header(),
         dcc.Loading(
             custom_spinner=loadingMessage(),
@@ -103,6 +105,20 @@ def mapSection():
             dl.LayerGroup(id="search-layer"),
         ],
     )
+
+
+def couriersLayer(couriers):
+    return [
+        dl.CircleMarker(
+            center=[lat, lon],
+            radius=6,
+            color=COURIER_COLOR,
+            weight=1,
+            fillOpacity=0.7,
+            children=dl.Tooltip(f"Entregador {courierId}"),
+        )
+        for lat, lon, courierId in couriers
+    ]
 
 
 def metricsSection():

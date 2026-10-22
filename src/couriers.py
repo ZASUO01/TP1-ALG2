@@ -7,7 +7,8 @@ from shapely.geometry import LineString, Point
 
 GRAPH_PATH = "cache/bh_drive.graphml"
 PLACE = "Belo Horizonte, Minas Gerais, Brazil"
-MAX_DISTANCE_M = 500
+SIGMA_M = 300
+MAX_CENTERS = 100
 
 
 def loadStreetGraph():
@@ -27,19 +28,25 @@ def edgeGeometry(graph, u, v, key):
     return LineString([(nodes[u]["x"], nodes[u]["y"]), (nodes[v]["x"], nodes[v]["y"])])
 
 
+def centerCount(n):
+    return max(1, min(n // 10, MAX_CENTERS))
+
+
 def generateCouriers(n, bars, graph, seed=None):
     rng = np.random.default_rng(seed)
     crs = graph.graph["crs"]
 
-    anchors = bars.iloc[rng.integers(0, len(bars), n)]
+    k = min(centerCount(n), len(bars))
+    centers = bars.iloc[rng.choice(len(bars), size=k, replace=False)]
+    perCenter = np.full(k, n // k)
+    perCenter[: n % k] += 1
+    anchors = centers.iloc[np.repeat(np.arange(k), perCenter)]
     anchorPoints = gpd.GeoSeries(
         gpd.points_from_xy(anchors["longitude"], anchors["latitude"]), crs="EPSG:4326"
     ).to_crs(crs)
 
-    angle = rng.uniform(0, 2 * np.pi, n)
-    distance = MAX_DISTANCE_M * np.sqrt(rng.uniform(0, 1, n))
-    x = anchorPoints.x.to_numpy() + distance * np.cos(angle)
-    y = anchorPoints.y.to_numpy() + distance * np.sin(angle)
+    x = anchorPoints.x.to_numpy() + rng.normal(0, SIGMA_M, n)
+    y = anchorPoints.y.to_numpy() + rng.normal(0, SIGMA_M, n)
 
     snapped = []
     for (u, v, key), px, py in zip(ox.distance.nearest_edges(graph, x, y), x, y):
@@ -47,4 +54,4 @@ def generateCouriers(n, bars, graph, seed=None):
         snapped.append(line.interpolate(line.project(Point(px, py))))
     snapped = gpd.GeoSeries(snapped, crs=crs).to_crs("EPSG:4326")
 
-    return [(point.y, point.x, k) for k, point in enumerate(snapped)]
+    return [(point.y, point.x, courierId) for courierId, point in enumerate(snapped)]
