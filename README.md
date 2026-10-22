@@ -1,182 +1,372 @@
-# Trabalho Prático 1 – Indexação Geoespacial e Geometria Computacional Híbrida
+# Trabalho Prático 1 – Busca de Entregadores com Geohash e Trie
 
-Motor de busca geoespacial de entregadores em Belo Horizonte. Dado um ponto no mapa e um
-raio, o sistema encontra todos os entregadores dentro do raio usando um índice
-**Geohash + Trie compacta**, ambos implementados do zero, com filtro final pela distância
-**haversine**. Os entregadores são sintéticos, gerados em torno dos bares da cidade e
-projetados sobre a malha viária real (OpenStreetMap). A interface é feita em Dash +
-dash-leaflet.
+Sistema que mostra, em um mapa de Belo Horizonte, quais entregadores estão perto de um bar ou
+restaurante escolhido. A busca usa um **Geohash**, que transforma uma coordenada geográfica em um texto, guardado numa **Trie compacta**.
 
-## Estrutura
+![Consulta com raio de 2 km](docs/img/03-consulta-2km.jpg)
 
-```
-app.py                  interface (Dash + dash-leaflet)
-src/geohash.py          Geohash: encode, decode, center, neighbors
-src/trie.py             Trie compacta (radix tree): insert, search por prefixo
-src/search.py           haversine, escolha da precisão, índice e busca por raio
-src/couriers.py         malha viária (osmnx) e geração dos entregadores
-scripts/benchmark.py    comparação índice x força bruta
-tests/                  testes (pytest)
-data/bares.csv          bares de BH (dados abertos da PBH)
-data/bares_geo.csv      mesmos bares com latitude/longitude (WGS84)
-cache/                  malha viária baixada e cache do osmnx (não versionado)
-```
+---
 
-## Como executar
+## 1. Como executar
+
+Requisito: Python 3.13 (testado com 3.13.5).
 
 ```bash
 python -m venv .venv
 .venv/bin/pip install -r requirements.txt
-.venv/bin/pytest                        # testes
-.venv/bin/python app.py                 # interface em http://127.0.0.1:8050
-.venv/bin/python -m scripts.benchmark   # experimentos
+.venv/bin/python app.py
 ```
 
-Na primeira execução da interface (ou do benchmark) a malha viária de BH é baixada do
-OpenStreetMap (~1,5 min) e salva em `cache/bh_drive.graphml`; nas seguintes ela é lida do
-disco (~3,5 s).
+Depois abra **http://127.0.0.1:8050** no navegador.
 
-Uso da interface: escolha o número **N** de entregadores e clique em *Generate*; defina o
-raio em km e clique em qualquer ponto do mapa. São exibidos o círculo de busca, as 9
-células de geohash consultadas, os entregadores encontrados (em vermelho), a precisão
-usada, o tempo da busca e os 10 entregadores mais próximos. A camada *Bars* (desligada por
-padrão) mostra os 20.859 bares agrupados em clusters.
+Outros comandos:
 
-## Dados
+```bash
+.venv/bin/pytest                        # roda os testes
+.venv/bin/python -m scripts.benchmark   # roda os experimentos
+```
 
-`data/bares.csv` contém os estabelecimentos da PBH classificados como bares/restaurantes.
-`data/bares_geo.csv` acrescenta as colunas `latitude` e `longitude` (WGS84), obtidas em
-uma etapa de pré-processamento (geocodificação dos endereços) que não faz parte do código
-deste repositório. <!-- TODO: descrever como a geocodificação foi feita -->
+**Primeira execução:** o mapa de ruas de BH é baixado do OpenStreetMap, o que leva cerca de
+1,5 minuto e é salvo em `cache/bh_drive.graphml`. Nas próximas vezes ele é lido do disco em
+poucos segundos.
 
-## Implementação
+---
 
-### Geohash (`src/geohash.py`)
+## 2. Como usar a interface
 
-- `encode(lat, lon, precision)`: a cada bit, o intervalo de uma coordenada é dividido ao
-  meio e o bit indica em qual metade o ponto está. Os bits alternam entre longitude e
-  latitude (começando pela longitude) e cada grupo de 5 bits vira um caractere da base 32
-  `0123456789bcdefghjkmnpqrstuvwxyz`.
-- `decode(geohash)`: refaz as divisões e devolve os intervalos `[lat_min, lat_max]` e
-  `[lon_min, lon_max]` da célula; `center` devolve o centro.
-- `neighbors(geohash)`: as 8 células adjacentes de mesma precisão, obtidas deslocando o
-  centro da célula em uma altura/largura de célula em cada direção e codificando de novo
-  (a longitude dá a volta em ±180°).
+A tela tem quatro partes:
 
-Pontos próximos tendem a compartilhar prefixo, mas não sempre: dois pontos a poucos
-metros, em lados opostos da borda de uma célula, podem ter geohashes completamente
-diferentes. Por isso a busca consulta também as vizinhas.
+| Parte | Para que serve |
+|---|---|
+| **Entregadores** | Escolha quantos entregadores criar (N) e clique em **Gerar**. Cada clique apaga os entregadores anteriores e cria um conjunto novo. |
+| **Bares** | Escolha um bar na lista. É possível digitar parte do nome **ou** do endereço. Ao lado fica o **raio de busca** em km de 0,1 a 20 km. |
+| **Mapa e tabela lateral** | O mapa mostra os entregadores. A tabela ao lado lista os entregadores dentro do raio, com o ID, a distância e o tempo estimado até o bar. |
+| **Métricas** | Resumo da busca: quantos foram encontrados, distâncias mínima e média, tempo médio de chegada, tempo da busca e tempo da geração. |
 
-### Trie compacta (`src/trie.py`)
+**Cores no mapa:**
 
-Árvore radix: cada aresta guarda uma string (`label`) em vez de um único caractere, e
-nós com um só filho e sem valores não existem. Cada chave termina em um nó que guarda a
-lista de valores daquela chave (vários entregadores podem ter o mesmo geohash).
+- **Cinza:** entregador fora do raio.
+- **Azul:** entregador dentro do raio.
+- **Ponto vermelho com borda branca:** o bar escolhido.
+- **Círculo vermelho:** o raio de busca.
 
-- `insert(key, value)`: desce comparando a chave com o rótulo das arestas; se a chave
-  diverge no meio de uma aresta, ela é dividida em um nó intermediário com a parte comum.
-- `search(prefix)`: desce até consumir o prefixo (que pode terminar no meio de uma
-  aresta) e coleta, com uma pilha, todos os valores da subárvore.
+---
 
-### Busca por raio (`src/search.py`)
+## 3. Organização do projeto
 
-1. Cada entregador é inserido na Trie com o geohash de precisão máxima (12); qualquer
-   precisão menor vira uma busca por prefixo.
-2. `precisionForRadius(r, lat)` escolhe a **maior** precisão cuja célula tem altura e
-   largura ≥ r. A largura em km diminui com o cosseno da latitude; usa-se a latitude mais
-   afastada do equador que o bloco pode alcançar, para não superestimá-la.
-3. Consulta-se a Trie com a célula do ponto e suas 8 vizinhas e aplica-se o filtro
-   haversine sobre os candidatos; o resultado é ordenado por distância.
+```
+app.py                      ponto de entrada cria o Dash, monta a tela e liga os eventos
+src/
+├── state.py                estado global do programa com dados, escolhas do usuário, e resultados
+├── core/                   
+│   ├── geohash.py          codificação Geohash, decodificação e vizinhas
+│   └── trie.py             Trie compacta 
+├── process/                
+│   ├── search.py           distância, escolha da precisão, índice e busca por raio
+│   ├── couriers.py         geração dos entregadores
+│   └── streets.py          download e leitura da malha viária utilizando osmnx
+└── interface/              
+    ├── ui.py               componentes da tela 
+    └── callbacks.py        funções callbacks de interação do usuário com a interface
+assets/
+├── style.css               estilos customizados para página
+└── markers.js              componente simples para representar marcadores na tela
+scripts/benchmark.py        experimentos de perfomance
+tests/                      testes automatizados
+data/bares.csv              base original de bares e restaurantes de BH
+data/bares_geo.csv          base processada, com latitude e longitude
+docs/img/                   prints usados no relatório
+cache/                      arquivos obtidos localmente
+```
 
-**Correção:** o ponto de consulta está dentro da célula central, logo a distância dele até
-a borda externa do bloco 3×3 é de pelo menos uma altura (ou largura) de célula, que é ≥ r.
-Assim, todo ponto a distância ≤ r está em uma das 9 células, e o filtro haversine remove
-os que estão no bloco mas fora do círculo. A busca devolve exatamente o mesmo conjunto da
-força bruta (verificado nos testes e no benchmark). Se nem a precisão 1 basta (raios de
-milhares de km), a busca percorre o índice inteiro.
+---
 
-### Entregadores sintéticos (`src/couriers.py`)
+## 4. O problema
 
-`generateCouriers(n, bars, graph, seed)` gera N entregadores (N escolhido na interface):
-cada um sorteia um bar, recebe um ponto uniforme num disco de 500 m em torno dele e é
-projetado no ponto mais próximo **sobre a geometria** da rua mais próxima da malha viária
-(`network_type="drive"`, projetada em UTM para trabalhar em metros). Com `seed` o
-resultado é reproduzível.
+Um aplicativo de entregas precisa responder rápido quais entregadores estão a até X km
+de um determinado restaurante.
 
-## Complexidade
+A forma mais simples com (**força bruta**) é calcular a distância do restaurante até cada
+entregador. Ao fazer isso, o tempo cresce junto com o número de entregadores. Com 100 mil
+entregadores, seriam 100 mil contas por consulta.
 
-Sejam `p` a precisão, `k = 12` o tamanho da chave, `N` o número de entregadores,
-`c` o número de candidatos nas 9 células e `m` o número de resultados.
+A solução mais eficiente parte de pegar só os entregadores da região
+do restaurante, usando Geohash + Trie. Depois calculamos a distância exata só para esses
+poucos candidatos.
+
+---
+
+## 5. Os dados
+
+- `data/bares.csv`: Mais de 20.800 bares, restaurantes e lanchonetes de BH. Traz nome, endereço, bairro e tipo de atividade, mas não traz coordenadas geográficas.
+- `data/bares_geo.csv`: A mesma base com a adição das colunas `latitude` e `longitude`. As coordenadas
+  vieram do cruzamento com a base de Atividade Econômica da Prefeitura de BH, que tem a
+  localização de cada estabelecimento.
+
+Os bares são usados de duas formas: como pontos de busca escolhidos pelo usuário e como centros para gerar os entregadores.
+
+---
+
+## 6. Implementação
+
+### 6.1 Geohash
+
+O Geohash transforma uma coordenada com latitude, longitude em um texto curto, como `7h2y8jev` que representa o centro de BH, com 8 caracteres.
+A propriedade importante para a aplicação é que pontos próximos costumam ter o começo do texto igual, ou seja, possuem o mesmo prefixo. Assim, o problema de achar quem está perto é convertido em achar quem possui o mesmo prefixo.
+
+**O encode segue o seguinte procedimento:**
+
+1. Os limites da localização começam com o mundo inteiro com longitude variando de -180 a 180 e latitude de -90 a 90.
+2. Divide o intervalo da **longitude** ao meio. Se o ponto está na metade de cima, anota o
+   bit `1`; se está na de baixo, anota `0`. O intervalo passa a ser só aquela metade.
+3. Faz o mesmo com a **latitude**.
+4. Repete, alternando longitude e latitude.
+5. A cada 5 bits, forma-se um número de 0 a 31, que vira um caractere da base 32: `0123456789bcdefghjkmnpqrstuvwxyz`.
+
+O resultado usa no máximo **8 caracteres**. Com essa precisão, o mapa de BH pode ser dividido em uma grade em que cada célula possui um 
+tamanho no mundo real de 19 m × 36 m. 
+
+- O **decode** faz o caminho inverso e devolve a caixa da célula, ou seja, os limites
+  de latitude e longitude.
+- A função **neighbors** devolve as 8 células vizinhas para o norte, sul, leste, oeste e
+  diagonais. Para isso, pega o centro da célula, anda uma célula em cada direção e codifica
+  de novo.
+
+### 6.2 Trie compacta
+
+Uma **Trie** é uma árvore em que cada caminho da raiz até um nó forma um prefixo. Todos os
+textos que começam com `7h2y` ficam embaixo do mesmo nó. Então, para achar todo elemento que
+começa com `7h2y`", basta descer até esse nó e pegar tudo o que está embaixo dele.
+
+
+**Estrutura do nó** 
+
+```python
+class Node:
+    label     # o pedaço de texto da aresta que chega neste nó 
+    children  # primeiro caractere do filho -> nó filho
+    values    # lista de entregadores cujo Geohash termina exatamente aqui
+```
+
+- **`children` é um dicionário** indexado pelo primeiro caractere. Como dois filhos nunca
+  começam com o mesmo caractere, achar o filho certo custa O(1).
+- **`values` é uma lista**, porque dois entregadores podem cair no mesmo Geohash de 8
+  caracteres. Isso trata essa colisão.
+- Cada entregador é guardado pela coordenada inteira e pelo ID, para depois calcular a
+  distância exata.
+
+**Inserir**
+
+Desce pela árvore comparando o texto com o `label` de cada aresta:
+
+- se não existe filho com aquele caractere, cria uma folha com o resto do texto.
+- se o texto bate com a aresta só até a metade, **divide a aresta em duas**: cria um nó
+  intermediário com a parte comum e pendura o resto embaixo dele.
+
+**Buscar por prefixo**
+
+1. Desce pela árvore consumindo o prefixo. O prefixo pode terminar **no meio** de uma aresta,
+   e isso é tratado.
+2. Ao chegar no nó certo, junta os entregadores de toda a subárvore, usando uma pilha.
+
+Essa busca custa **O(m + k)**. Descer custa no máximo `m` comparações, onde `m` é o tamanho
+do prefixo. Depois, a subárvore tem `k` entregadores. Como a árvore é compacta e todo nó
+interno tem pelo menos 2 filhos, uma subárvore com `k` folhas tem no máximo cerca de `2k`
+nós. 
+
+### 6.3 Busca por raio 
+
+A busca tem três passos:
+
+- **Montar o índice.** Cada entregador é inserido na Trie com o seu
+Geohash de 8 caracteres.
+
+- **Escolher o tamanho do prefixo.** Escolhemos a maior precisão cuja célula seja pelo menos do tamanho do raio, tanto na altura quanto na largura.
+
+- raio de 0,5 km → precisão 6;
+- raio de 1 a 2 km → precisão 5;
+- raio de 5 a 10 km → precisão 4;
+- raio de 20 km → precisão 3.
+
+A largura de uma célula em km diminui com a distancia ao Equador. O cálculo usa a
+latitude mais distante do Equador que a célula pode alcançar, para não superestimar a largura.
+
+- **Buscar nas células e filtrar.**
+
+1. Calcula o Geohash do restaurante com a precisão escolhida.
+2. Busca na Trie esse prefixo e os prefixos das 8 vizinhas. O resultado são os
+   candidatos.
+3. Para cada candidato, calcula a distância real pela fórmula de **haversine** para a distância
+   sobre a superfície da Terra e fica só com quem está a até `r` km.
+4. Ordena o resultado pela distância.
+
+Para o **tempo de chegada**, assumimos uma velocidade média de **20 km/h** para moto em área urbana. O tempo é `distância ÷ 20 km/h`. É uma estimativa
+simples em linha reta sem considerar o caminho pelas ruas.
+
+### 6.4 Geração dos entregadores
+
+São gerados N entregadores em quatro passos.
+
+**1. Escolha dos centros** `k = mínimo(n / 10, 100)`, com pelo menos 1.
+
+- Os entregadores devem ser divididos **igualmente** entre os
+  bares. Mas são mais de 20.800 bares e com N = 1.000 não dá nem um entregador por bar. Então
+  são sorteados alguns bares para serem os centros. A regra garante cerca de 10 entregadores por
+  centro quando N é pequeno, e no máximo 100 centros, para os grupos não ficarem espalhados
+  demais.
+
+**2. Sorteio dos centros** Sorteia `k` bares diferentes.
+
+**3. Distribuição normal** Cada centro recebe `n / k` entregadores. Quando a
+conta não é exata, o resto vai um a um para os primeiros centros. Cada entregador é colocado
+em `centro + desvio`, e o desvio vem de uma **distribuição normal** com desvio-padrão de
+**300 m** em cada eixo.
+
+- A distribuição normal deixa muitos entregadores bem perto do bar e cada vez menos
+  à medida que se afasta. O valor de 300 m deixa os grupos visíveis no mapa sem que se misturem demais.
+- Os cálculos são feitas em metros. O mapa de ruas é convertido para a projeção UTM para que signifique 300 metros de verdade.
+
+**4. Correção para a rua mais próxima** Um ponto sorteado pode cair dentro de um prédio, de
+um quarteirão fechado. Para corrigir isso é feito o seguinte procedimento.
+
+1. O mapa de ruas de BH é baixado do OpenStreetMap com a biblioteca `osmnx`, só com as ruas
+   por onde passam carros.
+2. Para cada ponto, achamos o trecho de rua mais próximo.
+3. O ponto é movido para o lugar mais próximo sobre a linha desse trecho.
+
+O resultado é uma lista de `(latitude, longitude, id)`.
+
+### 6.5 Estado global
+
+Toda a informação do app fica num único objeto, `AppState`, criado uma vez no `app.py`. Ele
+tem três grupos de campos:
+
+| Grupo | Campos | Quem preenche |
+|---|---|---|
+| **Dados** | bares, mapa de ruas, entregadores, Trie | o carregamento e o botão Gerar |
+| **Escolhas do usuário** | N, bar escolhido, raio | os campos da tela |
+| **Resultados** | entregadores encontrados, tempo da busca, tempo da geração | a busca e a geração |
+
+- Dessa forma a tela só lê o estado e mostra o que está lá. Os cálculos só leem e escrevem no
+  estado. Assim a interface fica completamente desacoplada do processamento a ser realizado.
+
+---
+
+## 7. Complexidade
+
+Se `p` é a precisão de no máximo 8, `N` o número de entregadores, `c` o número de candidatos
+nas células e `m` o número de encontrados.
 
 | Operação | Tempo |
 |---|---|
-| `encode` / `decode` | O(p) |
-| `neighbors` | O(p) (8 codificações) |
-| `insert` na Trie | O(k) (alfabeto de 32 símbolos, filhos em dicionário) |
-| `search(prefixo)` | O(p + tamanho da subárvore) = O(p + c) |
-| construção do índice | O(N·k) |
-| busca por raio | O(p + c + m log m) |
-| força bruta | O(N + m log m) |
+| `encode` / `decode` de um Geohash | O(p) |
+| `neighbors` | O(p) |
+| Inserir na Trie | O(p) |
+| Buscar um prefixo na Trie | O(p + k), sendo k os entregadores da subárvore |
+| Montar o índice | O(N · p) |
+| Busca por raio (9 prefixos + filtro + ordenação) | O(p + c + m log m) |
+| Força bruta | O(N + m log m) |
 
-Espaço da Trie: O(N) nós (numa árvore radix, no máximo ~2N nós para N chaves distintas).
+**Memória da Trie:** O(N), porque uma Trie compacta com N chaves tem no máximo cerca de 2N nós.
 
-## Testes
+---
 
-`pytest` executa 63 testes:
+## 8. Experimentos
 
-- **geohash**: valores de referência (`u4pruydqqvj`, `ezs42`, `s0000`), ida e volta
-  (o ponto cai dentro da caixa de `decode(encode(p))`) e vizinhas (8, distintas, mesma
-  precisão, formando exatamente a moldura 3×3 em torno da célula).
-- **trie**: prefixos que terminam no meio de arestas, chave que é prefixo de outra, chaves
-  repetidas, propriedade de compactação e comparação com `startswith` sobre 2.000
-  geohashes aleatórios.
-- **busca**: haversine, monotonicidade de `precisionForRadius`, comparação com força bruta
-  (3.000 pontos, raios de 50 m a 10.000 km) e um caso com dois pontos a ~20 m em lados
-  opostos da borda de uma célula.
-- **entregadores**: quantidade N, todos sobre a rua e a ≤ 500 m do bar, reprodutibilidade
-  com `seed` (grafo sintético, sem acesso à rede).
+### 8.1 Consultas na interface
 
-## Experimentos
+Todas as consultas usam o bar **PALLATE** (Rua Vinte e Oito de Setembro, 606 – Esplanada).
+O tempo de busca é o tempo da função `searchRadius`:
 
-`scripts/benchmark.py`: entregadores gerados sobre a malha real de BH; 100 consultas
-centradas em bares sorteados; média por consulta. Ambos os métodos em Python puro, e
-em todas as consultas o índice devolveu o mesmo conjunto da força bruta.
-
-| N | raio (km) | precisão | candidatos | encontrados | índice (ms) | força bruta (ms) | ganho |
+| # | N | Raio | Encontrados | Dist. mínima | Dist. média | Tempo médio de chegada | **Tempo de busca** |
 |---|---|---|---|---|---|---|---|
-| 1.000 | 0,5 | 6 | 29 | 5 | 0,08 | 0,37 | 5× |
-| 1.000 | 1 | 5 | 491 | 17 | 0,30 | 0,38 | 1× |
-| 1.000 | 2 | 5 | 491 | 54 | 0,31 | 0,39 | 1× |
-| 1.000 | 5 | 4 | 1.000 | 268 | 0,59 | 0,43 | <1× |
-| 10.000 | 0,5 | 6 | 274 | 46 | 0,22 | 3,65 | 16× |
-| 10.000 | 1 | 5 | 4.768 | 150 | 2,52 | 3,74 | 1,5× |
-| 10.000 | 2 | 5 | 4.768 | 519 | 2,57 | 3,78 | 1,5× |
-| 10.000 | 5 | 4 | 10.000 | 2.575 | 5,65 | 4,27 | <1× |
-| 100.000 | 0,5 | 6 | 2.754 | 460 | 2,87 | 38,68 | 13× |
-| 100.000 | 1 | 5 | 48.075 | 1.520 | 45,32 | 39,45 | <1× |
-| 100.000 | 2 | 5 | 48.075 | 5.234 | 46,09 | 40,67 | <1× |
-| 100.000 | 5 | 4 | 100.000 | 25.917 | 101,39 | 47,43 | <1× |
+| 1 | 1.000 | 2 km | 55 | 0,33 km | 1,26 km | 3,8 min | **0,895 ms** |
+| 2 | 1.000 | 0,5 km | 4 | 0,33 km | 0,39 km | 1,2 min | **0,171 ms** |
+| 3 | 1.000 | 5 km | 306 | 0,33 km | 3,14 km | 9,4 min | **1,417 ms** |
+| 4 | 10.000 | 2 km | 1.099 | 0,15 km | 1,30 km | 3,9 min | **4,076 ms** |
 
-Construção do índice: 10 ms (N = 1.000), 99 ms (10.000), 1,35 s (100.000).
+Tempo de geração considerando a distribuição normal + correção para as ruas + montagem da Trie: **0,82 s**
+com N = 1.000 e **1,05 s** com N = 10.000.
 
-**Análise.** O ganho depende de quão bem o bloco 3×3 se ajusta ao círculo. Cada caractere
-de geohash divide a célula por 32, então os tamanhos disponíveis são muito espaçados: em
-BH a precisão 6 tem células de ~1,2 km × 0,6 km e a precisão 5 de ~4,9 km × 4,6 km.
-Para r = 0,5 km a precisão 6 serve e o bloco 3×3 (~3,4 km × 1,8 km) contém só ~3% dos
-entregadores, daí o ganho de 13–16×. Para r = 1 km ou 2 km a altura de 0,6 km já não
-basta e a busca cai para a precisão 5, cujo bloco 3×3 (~15 km × 14 km) cobre quase metade
-da cidade; para r = 5 km cai para a precisão 4 e cobre a cidade inteira. Nesses casos o
-número de candidatos se aproxima de N e o índice fica no máximo empatado com a força
-bruta, pois ainda paga o percurso da Trie. Além disso, os entregadores se concentram
-perto dos bares (região central), o que aumenta os candidatos nas células centrais.
+**Entregadores gerados (N = 1.000).** É possível ver os grupos em volta dos bares sorteados, com
+mais entregadores no centro de cada grupo, e todos sobre as ruas:
 
-## Limitações e possíveis melhorias
+![Entregadores gerados](docs/img/02-entregadores-gerados.jpg)
 
-- A escolha "célula + 8 vizinhas" exige células ≥ r, o que leva a blocos muito maiores
-  que o círculo nos raios intermediários. Uma alternativa é usar uma precisão mais fina
-  (célula ≈ r/2) e consultar todas as células que intersectam a caixa envolvente do
-  círculo, ou permitir altura e largura de precisões diferentes.
-- Perto dos polos as vizinhas norte/sul não existem (não ocorre em BH).
-- A interface desenha cada entregador como um marcador; por isso N é limitado a 20.000.
-- Clicar no painel de camadas do mapa também conta como clique de busca (comportamento
-  do dash-leaflet).
+**Consulta 1 – raio de 2 km (55 entregadores, 0,895 ms):**
+
+![Consulta com raio de 2 km](docs/img/03-consulta-2km.jpg)
+
+**Consulta 2 – raio de 0,5 km (4 entregadores, 0,171 ms):**
+
+![Consulta com raio de 500 m](docs/img/04-consulta-500m.jpg)
+
+**Consulta 3 – raio de 5 km (306 entregadores, 1,417 ms).**
+
+![Consulta com raio de 5 km](docs/img/05-consulta-5km.jpg)
+
+**Consulta 4 – 10.000 entregadores, raio de 2 km (1.099 entregadores, 4,076 ms):**
+
+![Consulta com 10.000 entregadores](docs/img/06-consulta-10000.jpg)
+
+### 8.2 Índice x força bruta
+
+Para cada N, geramos os entregadores sobre o mapa real de BH e fizemos **100 consultas**,
+centradas em bares sorteados. A tabela mostra a **média por consulta**. Em todas as 1.200
+consultas, o índice devolveu **exatamente** o mesmo conjunto que a força bruta.
+
+| N | Raio | Precisão | Candidatos (9 células) | Encontrados | Índice (ms) | Força bruta (ms) | Ganho |
+|---|---|---|---|---|---|---|---|
+| 1.000 | 0,5 km | 6 | 28 | 4 | 0,08 | 0,38 | 4,8× |
+| 1.000 | 1 km | 5 | 481 | 15 | 0,31 | 0,40 | 1,3× |
+| 1.000 | 2 km | 5 | 481 | 51 | 0,34 | 0,42 | 1,2× |
+| 1.000 | 5 km | 4 | 1.000 | 259 | 0,58 | 0,42 | 0,7× |
+| 10.000 | 0,5 km | 6 | 263 | 38 | 0,27 | 3,71 | **13,7×** |
+| 10.000 | 1 km | 5 | 5.049 | 136 | 3,06 | 3,85 | 1,3× |
+| 10.000 | 2 km | 5 | 5.049 | 499 | 2,94 | 3,91 | 1,3× |
+| 10.000 | 5 km | 4 | 10.000 | 2.622 | 5,35 | 4,18 | 0,8× |
+| 100.000 | 0,5 km | 6 | 3.008 | 531 | 1,94 | 38,87 | **20,0×** |
+| 100.000 | 1 km | 5 | 48.793 | 1.683 | 29,98 | 40,04 | 1,3× |
+| 100.000 | 2 km | 5 | 48.793 | 5.415 | 29,33 | 40,15 | 1,4× |
+| 100.000 | 5 km | 4 | 100.000 | 26.498 | 67,35 | 46,85 | 0,7× |
+
+Tempo para montar a Trie: **7 ms** (N = 1.000), **75 ms** (N = 10.000) e **822 ms**
+(N = 100.000).
+
+### 8.3 Análise dos resultados
+
+- **Raios pequenos** Com raio de 0,5 km, a precisão 6 é suficiente. O
+  bloco de 9 células tem cerca de 1,8 km × 3,4 km e contém aproximadamente 3% dos entregadores. O
+  índice olha só esses e fica até 20 vezes mais rápido que a força bruta. Quanto maior o
+  N, maior o ganho.
+- **Raios médios** O tamanho das células do Geohash dá saltos
+  de 32 vezes. A célula de precisão 6 já é menor que 1 km, então a busca
+  precisa cair para a precisão 5, cujas células têm cerca de 4,9 km. O bloco 3×3 fica com
+  ~15 km × 14 km, quase metade da cidade. Muitos candidatos são verificados à toa e o ganho
+  fica em ~1,3×.
+- **Raios grandes** A precisão 4 tem células de ~20 km × 37 km.
+  O bloco 3×3 cobre a cidade inteira, então o índice olha **todos** os entregadores 
+   e ainda paga o custo de percorrer a Trie. Fica cerca de 30% mais lento.
+- **A concentração piora os casos médios.** Os entregadores ficam agrupados perto
+  dos bares que se concentram na região central. As células do centro têm mais candidatos
+  que a média.
+- **A interface representa um gargalo** O que mais demora é desenhar os pontos no mapa, não a busca.
+
+**Conclusão:** Geohash com Trie é muito eficiente quando a área de busca é pequena em relação à
+área total, que é o caso típico do problema de encontrar entregadores perto de um ponto. Para raios que forçam uma
+precisão baixa, o ganho desaparece por causa do tamanho fixo das células.
+
+---
+
+## 9. Bibliotecas usadas
+
+As estruturas centrais Geohash e Trie e a busca não usam nenhuma biblioteca. As
+bibliotecas abaixo foram usadas só para interface, mapas e leitura de dados:
+
+| Biblioteca | Função |
+|---|---|
+| `dash`, `dash-leaflet` | Página interativa e mapa |
+| `pandas` | Leitura do CSV dos bares |
+| `osmnx`, `networkx` | Download e uso do mapa de ruas do OpenStreetMap |
+| `geopandas`, `shapely`, `numpy` | Conversão para metros, sorteio da distribuição normal e projeção do ponto na rua |
+| `pytest` | Testes |

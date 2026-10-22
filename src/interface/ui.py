@@ -7,6 +7,7 @@ MAX_COURIERS = 20000
 MAX_RADIUS_KM = 20
 COURIER_COLOR = "#78909c"
 HIGHLIGHT_COLOR = "#d32f2f"
+FOUND_COLOR = "#1e63d6"
 TILES_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}"
 TILES_ATTRIBUTION = "Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors"
 
@@ -120,7 +121,7 @@ def couriersLayer(couriers, highlighted=frozenset()):
                 "type": "Feature",
                 "geometry": {"type": "Point", "coordinates": [lon, lat]},
                 "properties": {
-                    "color": HIGHLIGHT_COLOR if courierId in highlighted else COURIER_COLOR,
+                    "color": FOUND_COLOR if courierId in highlighted else COURIER_COLOR,
                     "tooltip": f"Entregador {courierId}",
                 },
             }

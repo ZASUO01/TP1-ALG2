@@ -5,13 +5,12 @@ import pytest
 
 from src.process.couriers import SIGMA_M, centerCount, generateCouriers
 
-CRS = "EPSG:31983"  # SIRGAS 2000 / UTM 23S, covers Belo Horizonte
+CRS = "EPSG:31983" 
 STREET_Y = 7796000.0
 BAR_X = 609000.0
 
 
 def oneStreetGraph():
-    # a single straight east-west street, 4 km long, in projected meters
     graph = nx.MultiDiGraph(crs=CRS)
     graph.add_node(1, x=BAR_X - 2000, y=STREET_Y)
     graph.add_node(2, x=BAR_X + 2000, y=STREET_Y)
@@ -60,7 +59,6 @@ def test_center_count(n, expected):
 
 
 def test_couriers_are_split_equally_between_centers():
-    # 3 bars 4 km apart on one long street; 30 couriers -> 3 centers, 10 each
     xs = [BAR_X - 4000, BAR_X, BAR_X + 4000]
     graph = nx.MultiDiGraph(crs=CRS)
     graph.add_node(1, x=BAR_X - 8000, y=STREET_Y)
