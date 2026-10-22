@@ -30,7 +30,7 @@ def test_haversine_known_values():
 
 
 def test_precision_for_radius():
-    assert precisionForRadius(0, -19.92) == 12
+    assert precisionForRadius(0, -19.92) == 8
     assert precisionForRadius(1, -19.92) == 5
     assert precisionForRadius(10000, -19.92) == 0
     radii = [0.01, 0.1, 0.5, 1, 2, 5, 10, 50, 100, 1000]

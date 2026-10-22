@@ -3,10 +3,11 @@ import time
 import pandas as pd
 
 from src.couriers import generateCouriers, loadStreetGraph
-from src.search import buildIndex
+from src.search import buildIndex, searchRadius
 from src.trie import CompactTrie
 
 BARS_PATH = "data/bares_geo.csv"
+COURIER_SPEED_KMH = 20
 
 class AppState:
     def __init__(self):
@@ -39,6 +40,42 @@ class AppState:
         self.trie = buildIndex(self.couriers)
         self.found = []
         self.generateTimeS = time.perf_counter() - start
+
+    def search(self):
+        bar = self.selectedBar()
+        if bar is None or not self.radiusKm or self.radiusKm <= 0:
+            self.found = []
+            self.searchTimeMs = None
+            return
+        start = time.perf_counter()
+        self.found = searchRadius(self.trie, bar["latitude"], bar["longitude"], self.radiusKm)
+        self.searchTimeMs = (time.perf_counter() - start) * 1000
+
+    def metrics(self):
+        searched = self.searchTimeMs is not None
+        distances = [distance for distance, _ in self.found]
+        meanDistance = sum(distances) / len(distances) if distances else None
+        return {
+            "found": len(distances) if searched else None,
+            "minDistanceKm": min(distances) if distances else None,
+            "meanDistanceKm": meanDistance,
+            "meanEtaMin": meanDistance / COURIER_SPEED_KMH * 60 if distances else None,
+            "searchTimeMs": self.searchTimeMs,
+            "generateTimeS": self.generateTimeS,
+        }
+
+    def foundRows(self):
+        return [
+            {
+                "id": courier[2],
+                "distanceKm": round(distance, 2),
+                "etaMin": round(distance / COURIER_SPEED_KMH * 60, 1),
+            }
+            for distance, courier in self.found
+        ]
+
+    def foundIds(self):
+        return {courier[2] for _, courier in self.found}
 
     def barOptions(self):
         names = self.bars["NOME_FANTASIA"].fillna(self.bars["NOME"])

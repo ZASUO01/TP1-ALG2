@@ -115,10 +115,27 @@ body {
   background: var(--accent-hover);
 }
 
+.map-row {
+  display: grid;
+  grid-template-columns: 3fr 1fr;
+  gap: 16px;
+  margin: 16px 0;
+}
+
+@media (max-width: 800px) {
+  .map-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .map {
   height: 60vh;
-  margin: 16px 0;
   overflow: hidden;
+}
+
+.couriers-table {
+  height: 60vh;
+  min-width: 0;
 }
 
 .metrics {

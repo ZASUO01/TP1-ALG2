@@ -1,6 +1,7 @@
-from dash import Input, Output, no_update
+from dash import Input, Output, ctx
+from dash.exceptions import PreventUpdate
 
-from src.ui import couriersLayer
+from src.ui import METRICS, couriersLayer, metricValues, searchLayer
 
 
 def registerCallbacks(app, state):
@@ -14,22 +15,33 @@ def registerCallbacks(app, state):
 
     @app.callback(
         Input("n", "value"),
-        Input("bar", "value"),
-        Input("radius", "value"),
     )
-    def updateChoices(n, barIndex, radiusKm):
+    def updateN(n):
         state.n = n
-        state.barIndex = barIndex
-        state.radiusKm = radiusKm
 
     @app.callback(
         Output("couriers-layer", "data"),
-        Output("metric-generate-time", "children"),
+        Output("search-layer", "children"),
+        Output("couriers-table", "data"),
+        *[Output(metricId, "children") for metricId, _, _, _ in METRICS],
         Input("generate", "n_clicks"),
+        Input("bar", "value"),
+        Input("radius", "value"),
         prevent_initial_call=True,
     )
-    def generate(_):
-        if not state.loaded or not state.n:
-            return no_update, no_update
-        state.generate()
-        return couriersLayer(state.couriers), f"{state.generateTimeS:.2f} s"
+    def updateMap(_, barIndex, radiusKm):
+        if not state.loaded:
+            raise PreventUpdate
+        if ctx.triggered_id == "generate" and state.n:
+            state.generate()
+
+        state.barIndex = barIndex
+        state.radiusKm = radiusKm
+        state.search()
+
+        return (
+            couriersLayer(state.couriers, state.foundIds()),
+            searchLayer(state.selectedBar(), state.radiusKm),
+            state.foundRows(),
+            *metricValues(state.metrics()),
+        )

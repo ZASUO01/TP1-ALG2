@@ -5,7 +5,7 @@ from src.trie import CompactTrie
 
 EARTH_RADIUS_KM = 6371.0
 KM_PER_DEGREE = EARTH_RADIUS_KM * math.pi / 180
-MAX_PRECISION = 12
+MAX_PRECISION = 8
 
 def haversine(lat1, lon1, lat2, lon2):
     phi1 = math.radians(lat1)
