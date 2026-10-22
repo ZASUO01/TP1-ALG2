@@ -9,10 +9,10 @@ restaurante escolhido. A busca usa um **Geohash**, que transforma uma coordenada
 
 ## 1. Como executar
 
-Requisito: Python 3.13 (testado com 3.13.5).
+Requisito: Python 3.13
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python app.py
 ```
