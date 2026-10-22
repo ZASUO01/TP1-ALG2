@@ -23,7 +23,7 @@ def registerCallbacks(app, state):
         state.radiusKm = radiusKm
 
     @app.callback(
-        Output("couriers-layer", "children"),
+        Output("couriers-layer", "data"),
         Output("metric-generate-time", "children"),
         Input("generate", "n_clicks"),
         prevent_initial_call=True,

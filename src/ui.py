@@ -101,24 +101,28 @@ def mapSection():
         preferCanvas=True,
         children=[
             dl.TileLayer(url=TILES_URL, attribution=TILES_ATTRIBUTION),
-            dl.LayerGroup(id="couriers-layer"),
+            dl.GeoJSON(
+                id="couriers-layer",
+                data=couriersLayer([]),
+                pointToLayer={"variable": "couriers.pointToLayer"},
+            ),
             dl.LayerGroup(id="search-layer"),
         ],
     )
 
 
 def couriersLayer(couriers):
-    return [
-        dl.CircleMarker(
-            center=[lat, lon],
-            radius=6,
-            color=COURIER_COLOR,
-            weight=1,
-            fillOpacity=0.7,
-            children=dl.Tooltip(f"Entregador {courierId}"),
-        )
-        for lat, lon, courierId in couriers
-    ]
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                "properties": {"color": COURIER_COLOR, "tooltip": f"Entregador {courierId}"},
+            }
+            for lat, lon, courierId in couriers
+        ],
+    }
 
 
 def metricsSection():
